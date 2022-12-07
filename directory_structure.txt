@@ -1,0 +1,17 @@
+simple_model_optimizer --|
+                                  -setup.py
+                                  simple_model_optimizer --|
+                                                                      inference.py
+                                                                      Training_based--|
+                                                                                          models--| 
+                                                                                                 - YOLOV7_tiny
+                                                                                                 -YOLO V7
+                                                                       Non_training_based
+                                                                                               models--|
+                                                                                                        - YOLOV7_tiny
+                                                                                                        -YOLO V7
+
+ 
+                                            
+                                               
+                                               
