@@ -7,7 +7,7 @@ import time
 from copy import deepcopy
 from pathlib import Path
 from threading import Thread
-from models.export import load_checkpoint, create_checkpoint
+from modoptima.Train.yolov7tiny.models.export import load_checkpoint, create_checkpoint
 import numpy as np
 import torch.distributed as dist
 import torch.nn as nn
@@ -21,32 +21,34 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-import tester as test  # import test.py to get mAP after each epoch
-from models.experimental import attempt_load
-from models.yolo import Model
-from utils.autoanchor import check_anchors
-from utils.datasets import create_dataloader
-from utils.general import labels_to_class_weights, increment_path, labels_to_image_weights, init_seeds, \
+import modoptima.Train.yolov7tiny.tester as test  # import test.py to get mAP after each epoch
+from modoptima.Train.yolov7tiny.models.experimental import attempt_load
+from modoptima.Train.yolov7tiny.models.yolo import Model
+from modoptima.Train.yolov7tiny.utils.autoanchor import check_anchors
+from modoptima.Train.yolov7tiny.utils.datasets import create_dataloader
+from modoptima.Train.yolov7tiny.utils.general import labels_to_class_weights, increment_path, labels_to_image_weights, init_seeds, \
     fitness, strip_optimizer, get_latest_run, check_dataset, check_file, check_git_status, check_img_size, \
     check_requirements, print_mutation, set_logging, one_cycle, colorstr
-from utils.google_utils import attempt_download
-from utils.loss import ComputeLoss, ComputeLossOTA
-from utils.plots import plot_images, plot_labels, plot_results, plot_evolution
-from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first, is_parallel
-from utils.wandb_logging.wandb_utils import WandbLogger, check_wandb_resume
+from modoptima.Train.yolov7tiny.utils.google_utils import attempt_download
+from modoptima.Train.yolov7tiny.utils.loss import ComputeLoss, ComputeLossOTA
+from modoptima.Train.yolov7tiny.utils.plots import plot_images, plot_labels, plot_results, plot_evolution
+from modoptima.Train.yolov7tiny.utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first, is_parallel
+from modoptima.Train.yolov7tiny.utils.wandb_logging.wandb_utils import WandbLogger, check_wandb_resume
 
-from utils.sparse import SparseMLWrapper
-
+from modoptima.Train.yolov7tiny.utils.sparse import SparseMLWrapper
+import pkg_resources
 logger = logging.getLogger(__name__)
 
-
+hyp_path=pkg_resources.resource_stream(__name__,'data/hyp.scratch.p5.yaml').name
+recipe_path=pkg_resources.resource_stream(__name__,'data/yolov7_tiny_pruned_ver2_quantized.md').name
+cfg_path=pkg_resources.resource_stream(__name__,'data/yolov7-tiny.yaml').name
 
 
 class YOLOV7TinyPruningQuantized:
     def __init__(self,weights='yolo7.pt',
                  cfg="",
                  data="",
-                 hyp="data/hyp.scratch.p5.yaml",
+                 hyp="",
                  epochs=300,
                  batch_size=16,
                  img_size=[640,640],
@@ -66,7 +68,7 @@ class YOLOV7TinyPruningQuantized:
                  sync_bn=False,
                  local_rank=-1,
                  workers=8,
-                 project='runs/train',
+                 project='./optmodel/',
                  entity=False,
                  name='exp',
                  exist_ok=False,
@@ -79,14 +81,27 @@ class YOLOV7TinyPruningQuantized:
                  artifact_alias="latest",
                  freeze=[0],
                  v5_metric=1.0,
-                 recipe='receipe/yolov7_tiny_pruned_ver2_quantized.md',
-                 save_dir='optmodel/'):
+                 recipe="",
+                 save_dir='./optmodel/'):
 
+          
+         self.hyp=hyp
+         self.recipe=recipe
+         self.cfg=cfg
+
+         if self.hyp=="":
+            self.hyp=hyp_path
+            
+
+         if self.recipe=="":
+            self.recipe=recipe_path
+
+         if self.cfg=="":
+            self.cfg=cfg_path
+    
 
          self.weights=weights
-         self.cfg=cfg
          self.data=data
-         self.hyp=hyp
          self.epochs=epochs
          self.batch_size=batch_size
          self.img_size=img_size
@@ -118,8 +133,7 @@ class YOLOV7TinyPruningQuantized:
          self.save_period=save_period
          self.artifact_alias=artifact_alias
          self.freeze=freeze
-         self.v5_metric=v5_metric
-         self.recipe=recipe
+         self.v5_metric=v5_metric       
          self.total_batch_size=None
          self.save_dir=save_dir
          self.world_size=None
@@ -780,10 +794,10 @@ class YOLOV7TinyPruningQuantized:
                     hyp[k] = round(hyp[k], 5)  # significant digits
 
                 # Train mutation
-                results = train(hyp.copy(),device)
+                results = self.start_training(hyp.copy(),device)
 
                 # Write mutation results
-                print_mutation(hyp.copy(), results, yaml_file, opt.bucket)
+                print_mutation(hyp.copy(), results, yaml_file, self.opt.bucket)
 
             # Plot results
             #plot_evolution(yaml_file)

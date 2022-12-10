@@ -1,0 +1,1 @@
+from modoptima.Train.yolov7tiny.Trainer import YOLOV7TinyPruningQuantized

@@ -3,7 +3,7 @@ import math
 from sparseml.pytorch.optim import ScheduledModifierManager
 from sparseml.pytorch.utils import SparsificationGroupLogger
 
-from utils.torch_utils import is_parallel
+from modoptima.Train.yolov7tiny.utils.torch_utils import is_parallel
 
 
 class SparseMLWrapper(object):

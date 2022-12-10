@@ -1,4 +1,4 @@
-"""Exports a YOLOv3 *.pt model to ONNX and TorchScript formats
+"""Exports a YOLOv7 *.pt model to ONNX and TorchScript formats
 
 Usage:
     $ export PYTHONPATH="$PWD" && python models/export.py --weights ./weights/yolov3.pt --img 640 --batch 1
@@ -17,14 +17,14 @@ import torch.nn as nn
 from sparseml.pytorch.utils import ModuleExporter
 from sparseml.pytorch.sparsification.quantization import skip_onnx_input_quantize
 
-import models
-from models.experimental import attempt_load
-from models.yolo import Model
-from utils.activations import Hardswish, SiLU
-from utils.general import set_logging, check_img_size
-from utils.google_utils import attempt_download
-from utils.sparse import SparseMLWrapper
-from utils.torch_utils import select_device, intersect_dicts, is_parallel, torch_distributed_zero_first
+import modoptima.Train.yolov7tiny.models
+from modoptima.Train.yolov7tiny.models.experimental import attempt_load
+from modoptima.Train.yolov7tiny.models.yolo import Model
+from modoptima.Train.yolov7tiny.utils.activations import Hardswish, SiLU
+from modoptima.Train.yolov7tiny.utils.general import set_logging, check_img_size
+from modoptima.Train.yolov7tiny.utils.google_utils import attempt_download
+from modoptima.Train.yolov7tiny.utils.sparse import SparseMLWrapper
+from modoptima.Train.yolov7tiny.utils.torch_utils import select_device, intersect_dicts, is_parallel, torch_distributed_zero_first
 
 
 def create_checkpoint(epoch, model, optimizer, ema, sparseml_wrapper, **kwargs):

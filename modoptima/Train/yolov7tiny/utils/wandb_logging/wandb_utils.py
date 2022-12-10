@@ -6,10 +6,10 @@ import torch
 import yaml
 from tqdm import tqdm
 
-sys.path.append(str(Path(__file__).parent.parent.parent))  # add utils/ to path
-from utils.datasets import LoadImagesAndLabels
-from utils.datasets import img2label_paths
-from utils.general import colorstr, xywh2xyxy, check_dataset
+#sys.path.append(str(Path(__file__).parent.parent.parent))  # add utils/ to path
+from modoptima.Train.yolov7tiny.utils.datasets import LoadImagesAndLabels
+from modoptima.Train.yolov7tiny.utils.datasets import img2label_paths
+from modoptima.Train.yolov7tiny.utils.general import colorstr, xywh2xyxy, check_dataset
 
 try:
     import wandb

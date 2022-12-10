@@ -9,13 +9,13 @@ import torch
 import yaml
 from tqdm import tqdm
 
-from models.experimental import attempt_load
-from utils.datasets import create_dataloader
-from utils.general import coco80_to_coco91_class, check_dataset, check_file, check_img_size, check_requirements, \
+from modoptima.Train.yolov7tiny.models.experimental import attempt_load
+from modoptima.Train.yolov7tiny.utils.datasets import create_dataloader
+from modoptima.Train.yolov7tiny.utils.general import coco80_to_coco91_class, check_dataset, check_file, check_img_size, check_requirements, \
     box_iou, non_max_suppression, scale_coords, xyxy2xywh, xywh2xyxy, set_logging, increment_path, colorstr
-from utils.metrics import ap_per_class, ConfusionMatrix
-from utils.plots import plot_images, output_to_target, plot_study_txt
-from utils.torch_utils import select_device, time_synchronized, TracedModel
+from modoptima.Train.yolov7tiny.utils.metrics import ap_per_class, ConfusionMatrix
+from modoptima.Train.yolov7tiny.utils.plots import plot_images, output_to_target, plot_study_txt
+from modoptima.Train.yolov7tiny.utils.torch_utils import select_device, time_synchronized, TracedModel
 
 
 def test(data,
