@@ -22,8 +22,13 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 import modoptima.Train.yolov7tiny.tester as test  # import test.py to get mAP after each epoch
-from modoptima.Train.yolov7tiny.models.experimental import attempt_load
+from modoptima.Train.yolov7tiny.models.experimental import attempt_load,End2End
 from modoptima.Train.yolov7tiny.models.yolo import Model
+import modoptima.Train.yolov7tiny.models as models
+from modoptima.Train.yolov7tiny.utils.activations import Hardswish, SiLU
+from modoptima.Train.yolov7tiny.utils.general import set_logging, check_img_size
+from modoptima.Train.yolov7tiny.utils.torch_utils import select_device
+from modoptima.Train.yolov7tiny.utils.add_nms import RegisterNMS
 from modoptima.Train.yolov7tiny.utils.autoanchor import check_anchors
 from modoptima.Train.yolov7tiny.utils.datasets import create_dataloader
 from modoptima.Train.yolov7tiny.utils.general import labels_to_class_weights, increment_path, labels_to_image_weights, init_seeds, \
@@ -40,7 +45,7 @@ import pkg_resources
 logger = logging.getLogger(__name__)
 
 hyp_path=pkg_resources.resource_stream(__name__,'data/hyp.scratch.p5.yaml').name
-recipe_path=pkg_resources.resource_stream(__name__,'data/yolov7_tiny_pruned_ver2_quantized.md').name
+recipe_path=pkg_resources.resource_stream(__name__,'data/yolov7_tiny_pruned_quantized_recipe.md').name
 cfg_path=pkg_resources.resource_stream(__name__,'data/yolov7-tiny.yaml').name
 
 
@@ -140,6 +145,152 @@ class YOLOV7TinyPruningQuantized:
          self.global_rank=None
 
          self.opt=None
+
+
+    def export_model(self,weights='./optmodel/exp/best.pt',
+                    img_size=[640,640],batch_size=1,dynamic=False,dynamic_batch=False,
+                    grid=False,end2end=False,max_wh=False,topk_all=100,iou_thres=0.45,
+                    conf_thres=0.25,device='cpu',simplify=False,include_nms=False,
+                    fp16=False,int8=False):
+
+        export_args=argparse.Namespace(weights=weights,
+                    img_size=img_size,batch_size=batch_size,dynamic=dynamic,dynamic_batch=dynamic_batch,
+                    grid=grid,end2end=end2end,max_wh=max_wh,topk_all=topk_all,iou_thres=iou_thres,
+                    conf_thres=conf_thres,device=device,simplify=simplify,include_nms=include_nms,
+                    fp16=fp16,int8=int8)
+
+        export_args.img_size *= 2 if len(export_args.img_size) == 1 else 1  # expand
+        export_args.dynamic = export_args.dynamic and not export_args.end2end
+        export_args.dynamic = False if export_args.dynamic_batch else export_args.dynamic
+
+        set_logging()
+        t = time.time()
+
+
+        # Load PyTorch model
+        device = select_device(export_args.device)
+        model = attempt_load(export_args.weights, map_location=device)  # load FP32 model
+        labels = model.names
+
+        # Checks
+        gs = int(max(model.stride))  # grid size (max stride)
+        export_args.img_size = [check_img_size(x, gs) for x in export_args.img_size]  # verify img_size are gs-multiples
+
+        # Input
+        img = torch.zeros(export_args.batch_size, 3, *export_args.img_size).to(device)  # image size(1,3,320,192) iDetection
+
+        # Update model
+        for k, m in model.named_modules():
+            m._non_persistent_buffers_set = set()  # pytorch 1.6.0 compatibility
+            if isinstance(m, models.common.Conv):  # assign export-friendly activations
+                if isinstance(m.act, nn.Hardswish):
+                    m.act = Hardswish()
+                elif isinstance(m.act, nn.SiLU):
+                    m.act = SiLU()
+            # elif isinstance(m, models.yolo.Detect):
+            #     m.forward = m.forward_export  # assign forward (optional)
+
+        model.model[-1].export = not export_args.grid  # set Detect() layer grid export
+        y = model(img)  # dry run
+        if export_args.include_nms:
+            model.model[-1].include_nms = True
+            y = None
+
+
+
+        # ONNX export
+        try:
+            import onnx
+
+            print('\nStarting ONNX export with onnx %s...' % onnx.__version__)
+            f = export_args.weights.replace('.pt', '.onnx')  # filename
+            model.eval()
+            output_names = ['classes', 'boxes'] if y is None else ['output']
+            dynamic_axes = None
+            if export_args.dynamic:
+                dynamic_axes = {'images': {0: 'batch', 2: 'height', 3: 'width'},  # size(1,3,640,640)
+                 'output': {0: 'batch', 2: 'y', 3: 'x'}}
+            if export_args.dynamic_batch:
+                export_args.batch_size = 'batch'
+                dynamic_axes = {
+                    'images': {
+                        0: 'batch',
+                    }, }
+                if export_args.end2end and export_args.max_wh is None:
+                    output_axes = {
+                        'num_dets': {0: 'batch'},
+                        'det_boxes': {0: 'batch'},
+                        'det_scores': {0: 'batch'},
+                        'det_classes': {0: 'batch'},
+                    }
+                else:
+                    output_axes = {
+                        'output': {0: 'batch'},
+                    }
+                dynamic_axes.update(output_axes)
+            if export_args.grid:
+                if export_args.end2end:
+                    print('\nStarting export end2end onnx model for %s...' % 'TensorRT' if export_args.max_wh is None else 'onnxruntime')
+                    model = End2End(model,export_args.topk_all,export_args.iou_thres,export_args.conf_thres,export_args.max_wh,device,len(labels))
+                    if export_args.end2end and export_args.max_wh is None:
+                        output_names = ['num_dets', 'det_boxes', 'det_scores', 'det_classes']
+                        shapes = [export_args.batch_size, 1, export_args.batch_size, export_args.topk_all, 4,
+                                  export_args.batch_size, export_args.topk_all, export_args.batch_size, export_args.topk_all]
+                    else:
+                        output_names = ['output']
+                else:
+                    model.model[-1].concat = True
+
+            torch.onnx.export(model, img, f, verbose=False, opset_version=12, input_names=['images'],
+                              output_names=output_names,
+                              dynamic_axes=dynamic_axes)
+
+            # Checks
+            onnx_model = onnx.load(f)  # load onnx model
+            onnx.checker.check_model(onnx_model)  # check onnx model
+
+            if export_args.end2end and export_args.max_wh is None:
+                for i in onnx_model.graph.output:
+                    for j in i.type.tensor_type.shape.dim:
+                        j.dim_param = str(shapes.pop(0))
+
+            # print(onnx.helper.printable_graph(onnx_model.graph))  # print a human readable model
+
+            # # Metadata
+            # d = {'stride': int(max(model.stride))}
+            # for k, v in d.items():
+            #     meta = onnx_model.metadata_props.add()
+            #     meta.key, meta.value = k, str(v)
+            # onnx.save(onnx_model, f)
+
+            if export_args.simplify:
+                try:
+                    import onnxsim
+
+                    print('\nStarting to simplify ONNX...')
+                    onnx_model, check = onnxsim.simplify(onnx_model)
+                    assert check, 'assert check failed'
+                except Exception as e:
+                    print(f'Simplifier failure: {e}')
+
+            # print(onnx.helper.printable_graph(onnx_model.graph))  # print a human readable model
+            onnx.save(onnx_model,f)
+            print('ONNX export success, saved as %s' % f)
+
+            if export_args.include_nms:
+                print('Registering NMS plugin for ONNX...')
+                mo = RegisterNMS(f)
+                mo.register_nms()
+                mo.save(f)
+
+        except Exception as e:
+            print('ONNX export failure: %s' % e)
+
+
+        # Finish
+        print('\nExport complete (%.2fs). Visualize with https://github.com/lutzroeder/netron.' % (time.time() - t))
+
+
             
 
 

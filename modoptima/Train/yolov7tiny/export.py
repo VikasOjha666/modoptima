@@ -57,7 +57,7 @@ if __name__ == '__main__':
     # Update model
     for k, m in model.named_modules():
         m._non_persistent_buffers_set = set()  # pytorch 1.6.0 compatibility
-        if isinstance(m, models.common.Conv):  # assign export-friendly activations
+        if isinstance(m, modoptima.Train.yolov7tiny.models.common.Conv):  # assign export-friendly activations
             if isinstance(m.act, nn.Hardswish):
                 m.act = Hardswish()
             elif isinstance(m.act, nn.SiLU):
