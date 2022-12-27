@@ -16,22 +16,18 @@ limitations under the License.
 
 ---
 # General Epoch/LR variables
-num_epochs: &num_epochs {{num_epochs}}
+num_epochs: &num_epochs {{ num_epochs }}
 
 # pruning hyperparameters
 init_sparsity: &init_sparsity 0.05
-pruning_start_epoch: &pruning_start_epoch {{prun_start_epoch}}
-pruning_end_epoch: &pruning_end_epoch {{prun_end_epoch}}
+pruning_start_epoch: &pruning_start_epoch {{ prun_start_epoch }}
+pruning_end_epoch: &pruning_end_epoch {{ prun_end_epoch }}
 update_frequency: &pruning_update_frequency 0.5
 
 prune_none_target_sparsity: &prune_none_target_sparsity 0.4
 prune_low_target_sparsity: &prune_low_target_sparsity 0.75
 prune_mid_target_sparsity: &prune_mid_target_sparsity 0.8
 prune_high_target_sparsity: &prune_high_target_sparsity 0.85
-
-# Quantization Epoch/LR variables
-quantization_start_epoch: &quantization_start_epoch {{quant_start_ep}}
-quantization_init_lr: &quantization_init_lr 0.0032 
 
 
 # modifiers
@@ -121,68 +117,6 @@ pruning_modifiers:
     start_epoch: *pruning_start_epoch
     end_epoch: *pruning_end_epoch
     update_frequency: *pruning_update_frequency
-
-quantization_modifiers:
-  - !QuantizationModifier
-    start_epoch: *quantization_start_epoch
-    submodules:
-      - model.0
-      - model.1 
-      - model.2
-      - model.3 
-      - model.4
-      - model.5
-      - model.7
-      - model.9
-      - model.10
-      - model.11
-      - model.12
-      - model.14
-      - model.15
-      - model.16
-      - model.17
-      - model.18
-      - model.19
-      - model.21
-      - model.23
-      - model.24
-      - model.25
-      - model.26
-      - model.28
-      - model.29
-      - model.30
-      - model.35
-      - model.37
-      - model.38
-      - model.40
-      - model.42
-      - model.43
-      - model.44
-      - model.45
-      - model.47
-      - model.48
-      - model.50
-      - model.52
-      - model.53
-      - model.54
-      - model.55
-      - model.57
-      - model.58
-      - model.60
-      - model.61
-      - model.62
-      - model.63
-      - model.65
-      - model.66
-      - model.68
-      - model.69
-      - model.70
-      - model.71
-      - model.73
-      - model.74
-      - model.75
-      - model.76
-
 ---
 
 # YOLOv7-tiny Pruned

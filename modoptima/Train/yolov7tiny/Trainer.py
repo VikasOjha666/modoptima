@@ -39,17 +39,24 @@ from modoptima.Train.yolov7tiny.utils.loss import ComputeLoss, ComputeLossOTA
 from modoptima.Train.yolov7tiny.utils.plots import plot_images, plot_labels, plot_results, plot_evolution
 from modoptima.Train.yolov7tiny.utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first, is_parallel
 from modoptima.Train.yolov7tiny.utils.wandb_logging.wandb_utils import WandbLogger, check_wandb_resume
+from jinja2 import Template
+import codecs
 
 from modoptima.Train.yolov7tiny.utils.sparse import SparseMLWrapper
 import pkg_resources
 logger = logging.getLogger(__name__)
 
 hyp_path=pkg_resources.resource_stream(__name__,'data/hyp.scratch.p5.yaml').name
-recipe_path=pkg_resources.resource_stream(__name__,'data/yolov7_tiny_pruned_quantized_recipe.md').name
+quant_recipe_path=pkg_resources.resource_stream(__name__,'data/yolov7_tiny_pruned_quantized_recipe.md').name
+prune_recipe_path=pkg_resources.resource_stream(__name__,'data/yolov7_tiny_pruned_ver2.md').name
+
+
+quant_recipe_path_base=pkg_resources.resource_stream(__name__,'data/yolov7_tiny_pruned_quantized_recipe_base.md').name
+prune_recipe_path_base=pkg_resources.resource_stream(__name__,'data/yolov7_tiny_pruned_ver2_base.md').name
 cfg_path=pkg_resources.resource_stream(__name__,'data/yolov7-tiny.yaml').name
 
 
-class YOLOV7TinyPruningQuantized:
+class YOLOV7TinyPruningQuantization:
     def __init__(self,weights='yolo7.pt',
                  cfg="",
                  data="",
@@ -87,19 +94,22 @@ class YOLOV7TinyPruningQuantized:
                  freeze=[0],
                  v5_metric=1.0,
                  recipe="",
-                 save_dir='./optmodel/'):
+                 save_dir='./optmodel/',quantize=False,prun_start_epoch=0,prun_end_epoch=80,quant_start_ep=240):
 
-          
+         self.quantize=quantize
          self.hyp=hyp
          self.recipe=recipe
          self.cfg=cfg
+
 
          if self.hyp=="":
             self.hyp=hyp_path
             
 
-         if self.recipe=="":
-            self.recipe=recipe_path
+         if self.recipe=="" and self.quantize is True:
+            self.recipe=quant_recipe_path
+         else:
+            self.recipe=prune_recipe_path
 
          if self.cfg=="":
             self.cfg=cfg_path
@@ -145,6 +155,32 @@ class YOLOV7TinyPruningQuantized:
          self.global_rank=None
 
          self.opt=None
+         self.prun_start_epoch=prun_start_epoch
+         self.prun_end_epoch=prun_end_epoch
+         self.quant_start_ep=quant_start_ep
+
+         if self.quantize is False:
+        
+             with open(quant_recipe_path_base, 'r') as file:
+               template = Template(file.read(),trim_blocks=True)
+             rendered_file = template.render(num_epochs=self.epochs,prun_start_epoch=self.prun_start_epoch,prun_end_epoch=self.prun_end_epoch)
+             #output the file
+             recipe_file=open(self.recipe,'w')
+             recipe_file.write(rendered_file)
+             recipe_file.close()
+         
+         else:
+            with open(prune_recipe_path_base, 'r') as file:
+               template = Template(file.read(),trim_blocks=True)
+            rendered_file = template.render(num_epochs=self.epochs,prun_start_epoch=self.prun_start_epoch,prun_end_epoch=self.prun_end_epoch,quant_start_ep=self.quant_start_ep)
+            #output the file
+            recipe_file=open(self.recipe,'w')
+            recipe_file.write(rendered_file)
+            recipe_file.close()
+
+
+
+
 
 
     def export_model(self,weights='./optmodel/exp/best.pt',
