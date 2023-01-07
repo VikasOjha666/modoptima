@@ -90,7 +90,7 @@ class YOLOV7:
                     conf_thres=0.25,device='cpu',simplify=False,include_nms=False,
                     fp16=False,int8=False):
 
-	    slef.main_class.export_model(weights=weights,
+	    self.main_class.export_model(weights=weights,
                     img_size=img_size,batch_size=batch_size,dynamic=dynamic,dynamic_batch=dynamic_batch,
                     grid=grid,end2end=end2end,max_wh=max_wh,topk_all=topk_all,iou_thres=iou_thres,
                     conf_thres=conf_thres,device=device,simplify=simplify,include_nms=include_nms,
