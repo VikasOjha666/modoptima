@@ -5,6 +5,7 @@ import os
 import random
 import time
 from copy import deepcopy
+import sys
 from pathlib import Path
 from threading import Thread
 from modoptima.Train.yolov7tiny.models.export import load_checkpoint, create_checkpoint
@@ -20,6 +21,9 @@ from torch.cuda import amp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
+
+from sparseml.pytorch.utils import ModuleExporter
+from sparseml.pytorch.sparsification.quantization import skip_onnx_input_quantize
 
 import modoptima.Train.yolov7tiny.tester as test  # import test.py to get mAP after each epoch
 from modoptima.Train.yolov7tiny.models.experimental import attempt_load,End2End
@@ -107,13 +111,9 @@ class YOLOV7TinyPruningQuantization:
             
          
          if self.quantize is False:
-            print('Selected prune recipe path')
             self.recipe=prune_recipe_path
-            print("Recipe path=",self.recipe)
          else:
-            print('Selected quant recipe path')
             self.recipe=quant_recipe_path
-            print("Recipe path=",self.recipe)
 
          if self.cfg=="":
             self.cfg=cfg_path
@@ -164,7 +164,6 @@ class YOLOV7TinyPruningQuantization:
          self.quant_start_ep=quant_start_ep
 
          if self.quantize is False:
-             print('Editing prune recipe')
         
              with open(prune_recipe_path_base, 'r') as file:
                template = Template(file.read(),trim_blocks=True)
@@ -176,7 +175,6 @@ class YOLOV7TinyPruningQuantization:
          
          else:
 
-            print("Editing quantize recipe")
             with open(quant_recipe_path_base, 'r') as file:
                template = Template(file.read(),trim_blocks=True)
             rendered_file = template.render(num_epochs=self.epochs,prun_start_epoch=self.prun_start_epoch,prun_end_epoch=self.prun_end_epoch,quant_start_ep=self.quant_start_ep)
@@ -184,9 +182,79 @@ class YOLOV7TinyPruningQuantization:
             recipe_file=open(self.recipe,'w')
             recipe_file.write(rendered_file)
             recipe_file.close()
+    def create_checkpoint(epoch, model, optimizer, ema, sparseml_wrapper, **kwargs):
+        pickle = not sparseml_wrapper.qat_active(epoch)  # qat does not support pickled exports
+        ckpt_model = deepcopy(model.module if is_parallel(model) else model).float()
+        yaml = ckpt_model.yaml
+        if not pickle:
+            ckpt_model = ckpt_model.state_dict()
 
+        return {'epoch': epoch,
+                'model': ckpt_model,
+                'optimizer': optimizer.state_dict(),
+                'yaml': yaml,
+                **ema.state_dict(pickle),
+                **sparseml_wrapper.state_dict(),
+                **kwargs}
 
+    def load_checkpoint(type_, weights, device, cfg=None, hyp=None, nc=None, recipe=None, resume=None, rank=-1):
+        with torch_distributed_zero_first(rank):
+            attempt_download(weights)  # download if not found locally
+        ckpt = torch.load(weights[0] if isinstance(weights, list) or isinstance(weights, tuple)
+                          else weights, map_location=device)  # load checkpoint
+        start_epoch = ckpt['epoch'] + 1 if 'epoch' in ckpt else 0
+        pickled = isinstance(ckpt['model'], nn.Module)
+        train_type = type_ == 'train'
+        ensemble_type = type_ == 'ensemble'
 
+        if pickled and ensemble_type:
+            # load ensemble using pickled
+            cfg = None
+            model = attempt_load(weights, map_location=device)  # load FP32 model
+            state_dict = model.state_dict()
+        else:
+            # load model from config and weights
+            cfg = cfg or (ckpt['yaml'] if 'yaml' in ckpt else None) or \
+                  (ckpt['model'].yaml if pickled else None)
+            model = Model(cfg, ch=3, nc=ckpt['nc'] if ('nc' in ckpt and not nc) else nc,
+                          anchors=hyp.get('anchors') if hyp else None).to(device)
+            model_key = 'ema' if (not train_type and 'ema' in ckpt and ckpt['ema']) else 'model'
+            state_dict = ckpt[model_key].float().state_dict() if pickled else ckpt[model_key]
+
+        # turn gradients for params back on in case they were removed
+        for p in model.parameters():
+            p.requires_grad = True
+
+        # load sparseml recipe for applying pruning and quantization
+        recipe = recipe or (ckpt['recipe'] if 'recipe' in ckpt else None)
+        sparseml_wrapper = SparseMLWrapper(model, recipe)
+        exclude_anchors = train_type and (cfg or hyp.get('anchors')) and not resume
+        loaded = False
+
+        if not train_type:
+            # apply the recipe to create the final state of the model when not training
+            sparseml_wrapper.apply()
+        else:
+            # intialize the recipe for training and restore the weights before if no quantized weights
+            quantized_state_dict = any([name.endswith('.zero_point') for name in state_dict.keys()])
+            if not quantized_state_dict:
+                state_dict = load_state_dict(model, state_dict, train=True, exclude_anchors=exclude_anchors)
+                loaded = True
+            sparseml_wrapper.initialize(start_epoch)
+
+        if not loaded:
+            state_dict = load_state_dict(model, state_dict, train=train_type, exclude_anchors=exclude_anchors)
+
+        model.float()
+        report = 'Transferred %g/%g items from %s' % (len(state_dict), len(model.state_dict()), weights)
+
+        return model, {
+            'ckpt': ckpt,
+            'state_dict': state_dict,
+            'start_epoch': start_epoch,
+            'sparseml_wrapper': sparseml_wrapper,
+            'report': report,
+        }
 
 
 
@@ -196,31 +264,29 @@ class YOLOV7TinyPruningQuantization:
                     conf_thres=0.25,device='cpu',simplify=False,include_nms=False,
                     fp16=False,int8=False):
 
-        export_args=argparse.Namespace(weights=weights,
+        opt=argparse.Namespace(weights=weights,
                     img_size=img_size,batch_size=batch_size,dynamic=dynamic,dynamic_batch=dynamic_batch,
                     grid=grid,end2end=end2end,max_wh=max_wh,topk_all=topk_all,iou_thres=iou_thres,
                     conf_thres=conf_thres,device=device,simplify=simplify,include_nms=include_nms,
                     fp16=fp16,int8=int8)
 
-        export_args.img_size *= 2 if len(export_args.img_size) == 1 else 1  # expand
-        export_args.dynamic = export_args.dynamic and not export_args.end2end
-        export_args.dynamic = False if export_args.dynamic_batch else export_args.dynamic
 
+        opt.img_size *= 2 if len(opt.img_size) == 1 else 1  # expand
         set_logging()
         t = time.time()
 
-
         # Load PyTorch model
-        device = select_device(export_args.device)
-        model = attempt_load(export_args.weights, map_location=device)  # load FP32 model
+        device = select_device(opt.device)
+        model, extras = load_checkpoint('ensemble', opt.weights, device)  # load FP32 model
+        sparseml_wrapper = extras['sparseml_wrapper']
         labels = model.names
 
         # Checks
         gs = int(max(model.stride))  # grid size (max stride)
-        export_args.img_size = [check_img_size(x, gs) for x in export_args.img_size]  # verify img_size are gs-multiples
+        opt.img_size = [check_img_size(x, gs) for x in opt.img_size]  # verify img_size are gs-multiples
 
         # Input
-        img = torch.zeros(export_args.batch_size, 3, *export_args.img_size).to(device)  # image size(1,3,320,192) iDetection
+        img = torch.zeros(opt.batch_size, 3, *opt.img_size).to(device)  # image size(1,3,320,192) iDetection
 
         # Update model
         for k, m in model.named_modules():
@@ -232,107 +298,59 @@ class YOLOV7TinyPruningQuantization:
                     m.act = SiLU()
             # elif isinstance(m, models.yolo.Detect):
             #     m.forward = m.forward_export  # assign forward (optional)
-
-        model.model[-1].export = not export_args.grid  # set Detect() layer grid export
+        model.model[-1].export = not opt.grid  # set Detect() layer grid export
         y = model(img)  # dry run
-        if export_args.include_nms:
-            model.model[-1].include_nms = True
-            y = None
-
-
 
         # ONNX export
         try:
             import onnx
 
             print('\nStarting ONNX export with onnx %s...' % onnx.__version__)
-            f = export_args.weights.replace('.pt', '.onnx')  # filename
-            model.eval()
-            output_names = ['classes', 'boxes'] if y is None else ['output']
-            dynamic_axes = None
-            if export_args.dynamic:
-                dynamic_axes = {'images': {0: 'batch', 2: 'height', 3: 'width'},  # size(1,3,640,640)
-                 'output': {0: 'batch', 2: 'y', 3: 'x'}}
-            if export_args.dynamic_batch:
-                export_args.batch_size = 'batch'
-                dynamic_axes = {
-                    'images': {
-                        0: 'batch',
-                    }, }
-                if export_args.end2end and export_args.max_wh is None:
-                    output_axes = {
-                        'num_dets': {0: 'batch'},
-                        'det_boxes': {0: 'batch'},
-                        'det_scores': {0: 'batch'},
-                        'det_classes': {0: 'batch'},
-                    }
-                else:
-                    output_axes = {
-                        'output': {0: 'batch'},
-                    }
-                dynamic_axes.update(output_axes)
-            if export_args.grid:
-                if export_args.end2end:
-                    print('\nStarting export end2end onnx model for %s...' % 'TensorRT' if export_args.max_wh is None else 'onnxruntime')
-                    model = End2End(model,export_args.topk_all,export_args.iou_thres,export_args.conf_thres,export_args.max_wh,device,len(labels))
-                    if export_args.end2end and export_args.max_wh is None:
-                        output_names = ['num_dets', 'det_boxes', 'det_scores', 'det_classes']
-                        shapes = [export_args.batch_size, 1, export_args.batch_size, export_args.topk_all, 4,
-                                  export_args.batch_size, export_args.topk_all, export_args.batch_size, export_args.topk_all]
-                    else:
-                        output_names = ['output']
-                else:
-                    model.model[-1].concat = True
-
-            torch.onnx.export(model, img, f, verbose=False, opset_version=12, input_names=['images'],
-                              output_names=output_names,
-                              dynamic_axes=dynamic_axes)
+            f = opt.weights.replace('.pt', '.onnx')  # filename
+            if not sparseml_wrapper.enabled:
+                torch.onnx.export(model, img, f, verbose=False, opset_version=12, input_names=['images'],
+                                  output_names=['classes', 'boxes'] if y is None else ['output'],
+                                  dynamic_axes={'images': {0: 'batch', 2: 'height', 3: 'width'},  # size(1,3,640,640)
+                                                'output': {0: 'batch', 2: 'y', 3: 'x'}} if opt.dynamic else None)
+            else:
+                # export through SparseML so quantized and pruned graphs can be corrected
+                save_dir = '/'.join(f.split('/')[:-1])
+                save_name = f.split('/')[-1]
+                exporter = ModuleExporter(model, save_dir)
+                exporter.export_onnx(img, name=save_name, convert_qat=True)
+                try:
+                    skip_onnx_input_quantize(f, f)
+                except:
+                    pass
 
             # Checks
             onnx_model = onnx.load(f)  # load onnx model
             onnx.checker.check_model(onnx_model)  # check onnx model
-
-            if export_args.end2end and export_args.max_wh is None:
-                for i in onnx_model.graph.output:
-                    for j in i.type.tensor_type.shape.dim:
-                        j.dim_param = str(shapes.pop(0))
-
             # print(onnx.helper.printable_graph(onnx_model.graph))  # print a human readable model
-
-            # # Metadata
-            # d = {'stride': int(max(model.stride))}
-            # for k, v in d.items():
-            #     meta = onnx_model.metadata_props.add()
-            #     meta.key, meta.value = k, str(v)
-            # onnx.save(onnx_model, f)
-
-            if export_args.simplify:
-                try:
-                    import onnxsim
-
-                    print('\nStarting to simplify ONNX...')
-                    onnx_model, check = onnxsim.simplify(onnx_model)
-                    assert check, 'assert check failed'
-                except Exception as e:
-                    print(f'Simplifier failure: {e}')
-
-            # print(onnx.helper.printable_graph(onnx_model.graph))  # print a human readable model
-            onnx.save(onnx_model,f)
             print('ONNX export success, saved as %s' % f)
-
-            if export_args.include_nms:
-                print('Registering NMS plugin for ONNX...')
-                mo = RegisterNMS(f)
-                mo.register_nms()
-                mo.save(f)
-
         except Exception as e:
             print('ONNX export failure: %s' % e)
 
+        # CoreML export
+        try:
+            import coremltools as ct
+
+            print('\nStarting CoreML export with coremltools %s...' % ct.__version__)
+            # convert model from torchscript and apply pixel scaling as per detect.py
+            model = ct.convert(ts, inputs=[ct.ImageType(name='image', shape=img.shape, scale=1 / 255.0, bias=[0, 0, 0])])
+            f = opt.weights.replace('.pt', '.mlmodel')  # filename
+            model.save(f)
+            print('CoreML export success, saved as %s' % f)
+        except Exception as e:
+            print('CoreML export failure: %s' % e)
 
         # Finish
-        print('\nExport complete (%.2fs). Visualize with https://github.com/lutzroeder/netron.' % (time.time() - t))
+        print('\nExport complete (%.2fs).' % (time.time() - t))
 
+
+
+
+        
 
             
 
