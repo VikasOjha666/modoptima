@@ -39,7 +39,7 @@ class YOLOV7:
                  freeze=[0],
                  v5_metric=1.0,
                  recipe="",
-                 save_dir='./optmodel/',quantize=False,prun_start_epoch=0,prun_end_epoch=0):
+                 save_dir='./optmodel/',quantize=False,prun_start_epoch=0,prun_end_epoch=0,quant_start_ep=243):
 
 	    self.main_class=YOLOV7TinyPruningQuantization(weights=weights,
                  cfg=cfg,
@@ -78,7 +78,7 @@ class YOLOV7:
                  freeze=freeze,
                  v5_metric=v5_metric,
                  recipe=recipe,
-                 save_dir=save_dir,quantize=quantize,prun_start_epoch=prun_start_epoch,prun_end_epoch=prun_end_epoch)
+                 save_dir=save_dir,quantize=quantize,prun_start_epoch=prun_start_epoch,prun_end_epoch=prun_end_epoch,quant_start_ep=quant_start_ep)
 
 
 	def create_optimized_model(self):

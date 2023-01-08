@@ -105,11 +105,15 @@ class YOLOV7TinyPruningQuantization:
          if self.hyp=="":
             self.hyp=hyp_path
             
-
-         if self.recipe=="" and self.quantize is True:
-            self.recipe=quant_recipe_path
-         else:
+         
+         if self.quantize is False:
+            print('Selected prune recipe path')
             self.recipe=prune_recipe_path
+            print("Recipe path=",self.recipe)
+         else:
+            print('Selected quant recipe path')
+            self.recipe=quant_recipe_path
+            print("Recipe path=",self.recipe)
 
          if self.cfg=="":
             self.cfg=cfg_path
@@ -160,8 +164,9 @@ class YOLOV7TinyPruningQuantization:
          self.quant_start_ep=quant_start_ep
 
          if self.quantize is False:
+             print('Editing prune recipe')
         
-             with open(quant_recipe_path_base, 'r') as file:
+             with open(prune_recipe_path_base, 'r') as file:
                template = Template(file.read(),trim_blocks=True)
              rendered_file = template.render(num_epochs=self.epochs,prun_start_epoch=self.prun_start_epoch,prun_end_epoch=self.prun_end_epoch)
              #output the file
@@ -170,7 +175,9 @@ class YOLOV7TinyPruningQuantization:
              recipe_file.close()
          
          else:
-            with open(prune_recipe_path_base, 'r') as file:
+
+            print("Editing quantize recipe")
+            with open(quant_recipe_path_base, 'r') as file:
                template = Template(file.read(),trim_blocks=True)
             rendered_file = template.render(num_epochs=self.epochs,prun_start_epoch=self.prun_start_epoch,prun_end_epoch=self.prun_end_epoch,quant_start_ep=self.quant_start_ep)
             #output the file
