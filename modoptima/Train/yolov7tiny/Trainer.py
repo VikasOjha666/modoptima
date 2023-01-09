@@ -181,6 +181,18 @@ class YOLOV7TinyPruningQuantization:
             recipe_file=open(self.recipe,'w')
             recipe_file.write(rendered_file)
             recipe_file.close()
+
+    def load_state_dict(self,model, state_dict, train, exclude_anchors):
+      # fix older state_dict names not porting to the new model setup
+      state_dict = {key if not key.startswith("module.") else key[7:]: val for key, val in state_dict.items()}
+
+      if train:
+          # load any missing weights from the model
+          state_dict = intersect_dicts(state_dict, model.state_dict(), exclude=['anchor'] if exclude_anchors else [])
+
+      model.load_state_dict(state_dict, strict=not train)  # load
+
+      return state_dict
     def create_checkpoint(self,epoch, model, optimizer, ema, sparseml_wrapper, **kwargs):
         pickle = not sparseml_wrapper.qat_active(epoch)  # qat does not support pickled exports
         ckpt_model = deepcopy(model.module if is_parallel(model) else model).float()
