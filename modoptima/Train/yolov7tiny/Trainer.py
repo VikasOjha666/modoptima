@@ -8,7 +8,6 @@ from copy import deepcopy
 import sys
 from pathlib import Path
 from threading import Thread
-from modoptima.Train.yolov7tiny.models.export import load_checkpoint, create_checkpoint
 import numpy as np
 import torch.distributed as dist
 import torch.nn as nn
@@ -182,7 +181,7 @@ class YOLOV7TinyPruningQuantization:
             recipe_file=open(self.recipe,'w')
             recipe_file.write(rendered_file)
             recipe_file.close()
-    def create_checkpoint(epoch, model, optimizer, ema, sparseml_wrapper, **kwargs):
+    def create_checkpoint(self,epoch, model, optimizer, ema, sparseml_wrapper, **kwargs):
         pickle = not sparseml_wrapper.qat_active(epoch)  # qat does not support pickled exports
         ckpt_model = deepcopy(model.module if is_parallel(model) else model).float()
         yaml = ckpt_model.yaml
@@ -197,7 +196,7 @@ class YOLOV7TinyPruningQuantization:
                 **sparseml_wrapper.state_dict(),
                 **kwargs}
 
-    def load_checkpoint(type_, weights, device, cfg=None, hyp=None, nc=None, recipe=None, resume=None, rank=-1):
+    def load_checkpoint(self,type_, weights, device, cfg=None, hyp=None, nc=None, recipe=None, resume=None, rank=-1):
         with torch_distributed_zero_first(rank):
             attempt_download(weights)  # download if not found locally
         ckpt = torch.load(weights[0] if isinstance(weights, list) or isinstance(weights, tuple)
@@ -277,7 +276,7 @@ class YOLOV7TinyPruningQuantization:
 
         # Load PyTorch model
         device = select_device(opt.device)
-        model, extras = load_checkpoint('ensemble', opt.weights, device)  # load FP32 model
+        model, extras = self.load_checkpoint('ensemble', opt.weights, device)  # load FP32 model
         sparseml_wrapper = extras['sparseml_wrapper']
         labels = model.names
 
@@ -791,7 +790,7 @@ class YOLOV7TinyPruningQuantization:
                                'best_fitness': best_fitness,
                                'training_results': results_file.read_text(),
                                'wandb_id': wandb_logger.wandb_run.id if wandb_logger.wandb else None}
-                    ckpt = create_checkpoint(epoch, model, optimizer, ema, sparseml_wrapper, **ckpt_extras)
+                    ckpt = self.create_checkpoint(epoch, model, optimizer, ema, sparseml_wrapper, **ckpt_extras)
 
 
                     # Save last, best and delete
