@@ -249,12 +249,12 @@ class YOLOV7TinyPruningQuantization:
             # intialize the recipe for training and restore the weights before if no quantized weights
             quantized_state_dict = any([name.endswith('.zero_point') for name in state_dict.keys()])
             if not quantized_state_dict:
-                state_dict = load_state_dict(model, state_dict, train=True, exclude_anchors=exclude_anchors)
+                state_dict = self.load_state_dict(model, state_dict, train=True, exclude_anchors=exclude_anchors)
                 loaded = True
             sparseml_wrapper.initialize(start_epoch)
 
         if not loaded:
-            state_dict = load_state_dict(model, state_dict, train=train_type, exclude_anchors=exclude_anchors)
+            state_dict = self.load_state_dict(model, state_dict, train=train_type, exclude_anchors=exclude_anchors)
 
         model.float()
         report = 'Transferred %g/%g items from %s' % (len(state_dict), len(model.state_dict()), weights)
