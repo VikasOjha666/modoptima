@@ -38,7 +38,7 @@ class YOLOV7:
                  artifact_alias="latest",
                  freeze=[0],
                  v5_metric=1.0,
-                 recipe="",
+                 recipe="",transfer_learning=False,
                  save_dir='./optmodel/',quantize=False,prun_start_epoch=0,prun_end_epoch=0,quant_start_ep=243):
 
 	    self.main_class=YOLOV7TinyPruningQuantization(weights=weights,
@@ -77,7 +77,7 @@ class YOLOV7:
                  artifact_alias=artifact_alias,
                  freeze=freeze,
                  v5_metric=v5_metric,
-                 recipe=recipe,
+                 recipe=recipe,transfer_learning=transfer_learning,
                  save_dir=save_dir,quantize=quantize,prun_start_epoch=prun_start_epoch,prun_end_epoch=prun_end_epoch,quant_start_ep=quant_start_ep)
 
 

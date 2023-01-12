@@ -96,7 +96,7 @@ class YOLOV7TinyPruningQuantization:
                  artifact_alias="latest",
                  freeze=[0],
                  v5_metric=1.0,
-                 recipe="",
+                 recipe="",transfer_learning=False,
                  save_dir='./optmodel/',quantize=False,prun_start_epoch=0,prun_end_epoch=80,quant_start_ep=240):
 
          self.quantize=quantize
@@ -156,6 +156,7 @@ class YOLOV7TinyPruningQuantization:
          self.save_dir=save_dir
          self.world_size=None
          self.global_rank=None
+         self.transfer_learning=transfer_learning
 
          self.opt=None
          self.prun_start_epoch=prun_start_epoch
@@ -409,13 +410,19 @@ class YOLOV7TinyPruningQuantization:
 
         # Model
         pretrained = weights.endswith('.pt')
-        if pretrained:
-           model, extras = load_checkpoint('train', weights, device, opt.cfg, hyp, nc, opt.recipe, opt.resume, rank)
+        if pretrained and self.transfer_learning:
+           model, extras = self.load_checkpoint('train', weights, device, opt.cfg, hyp, nc, opt.recipe, opt.resume, rank)
+           sparseml_wrapper = SparseMLWrapper(model, opt.recipe)
+           sparseml_wrapper.initialize(start_epoch=0.0)
+           ckpt = None
+           
+        elif pretrained:
+           model, extras = self.load_checkpoint('train', weights, device, opt.cfg, hyp, nc, opt.recipe, opt.resume, rank)
            ckpt, state_dict, sparseml_wrapper = extras['ckpt'], extras['state_dict'], extras['sparseml_wrapper']
            logger.info(extras['report'])  # report
+
         else:
             model = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
-
             sparseml_wrapper = SparseMLWrapper(model, opt.recipe)
             sparseml_wrapper.initialize(start_epoch=0.0)
             ckpt = None
@@ -529,30 +536,35 @@ class YOLOV7TinyPruningQuantization:
         start_epoch, best_fitness = 0, 0.0
         if pretrained:
             # Optimizer
-            if ckpt['optimizer'] is not None:
+            if ckpt is not None:
                 optimizer.load_state_dict(ckpt['optimizer'])
                 best_fitness = ckpt['best_fitness']
 
             # EMA
-            if ema and ckpt.get('ema'):
+            if ema is not None and ckpt is not None:
+              if ema and ckpt.get('ema'):
                 ema.ema.load_state_dict(ckpt['ema'].float().state_dict())
                 ema.updates = ckpt['updates']
 
 
             # Results
-            if ckpt.get('training_results') is not None:
+            if ckpt is not None:
+             if ckpt.get('training_results') is not None:
                 results_file.write_text(ckpt['training_results'])  # write results.txt
 
             # Epochs
-            start_epoch = ckpt['epoch'] + 1
+            if ckpt is not None:
+              start_epoch = ckpt['epoch'] + 1
+            else:
+              start_epoch=0
             if opt.resume:
                 assert start_epoch > 0, '%s training to %g epochs is finished, nothing to resume.' % (weights, epochs)
             if epochs < start_epoch:
                 logger.info('%s has been trained for %g epochs. Fine-tuning for %g additional epochs.' %
                             (weights, ckpt['epoch'], epochs))
                 epochs += ckpt['epoch']  # finetune additional epochs
-
-            del ckpt, state_dict
+            if ckpt is not None:
+              del ckpt, state_dict
 
         # Image sizes
         gs = max(int(model.stride.max()), 32)  # grid size (max stride)

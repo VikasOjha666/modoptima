@@ -15,7 +15,7 @@ setuptools.setup(
     url="https://github.com/VikasOjha666/modoptima",
     author="Vikas Kumar Ojha",
     author_email="vikas.ojha894@gmail.com",
-    description="ModOptima is a library that democratize deep learning model optimizations to developers. Letting them optimize their models with few lines of code while avoiding the headache of setting up dependencies.",
+    description="ModOptima is a library that democratize deep learning model optimizations to developers. Letting them optimize their models with few lines of code.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=['modoptima','modoptima.Train','modoptima.Train.yolov7tiny','modoptima.Train.yolov7tiny.data','modoptima.Train.yolov7tiny.models','modoptima.Train.yolov7tiny.data',
