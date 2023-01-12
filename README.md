@@ -1,6 +1,6 @@
 # ModOptima
 
-Modoptima is a model optimization library that aims at democratizing model development for software or machine learning engineers who want to deploy their systems in production. It is currently in development and it aims at optimizing and running models in  least lines of code possible.
+Modoptima is a model optimization library that aims at democratizing model deployment for software or machine learning engineers who want to deploy their systems in production. It is currently in development and it aims at optimizing and running models in  least lines of code possible.
 
 ### Models Supported.
 * Tiny YOLO V7 (Supported)
@@ -26,12 +26,15 @@ The modoptima can be installed from the source at the moment but will be availab
 You can install modoptima by following below steps:
 
 * Clone the repo.
+
 `git clone https://github.com/VikasOjha666/modoptima.git`
 
 * Navigate to the cloned folder.
+
 `cd modoptima`
 
 * Install by running the setup.
+
 `python setup.py install`
 
 #### Install via pip

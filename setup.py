@@ -17,6 +17,7 @@ setuptools.setup(
     author_email="vikas.ojha894@gmail.com",
     description="ModOptima is a library that democratize deep learning model optimizations to developers. Letting them optimize their models with few lines of code while avoiding the headache of setting up dependencies.",
     long_description=long_description,
+    long_description_content_type="text/markdown",
     packages=['modoptima','modoptima.Train','modoptima.Train.yolov7tiny','modoptima.Train.yolov7tiny.data','modoptima.Train.yolov7tiny.models','modoptima.Train.yolov7tiny.data',
        'modoptima.Train.yolov7tiny.utils','modoptima.Train.yolov7tiny.utils.wandb_logging'],
     install_requires=['sparseml','numpy','opencv-python','onnx','onnxruntime','tqdm'],
